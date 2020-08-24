@@ -50,8 +50,7 @@ func (cf *CollisionFinder) Run() (chan<- *File, <-chan error) {
 			go func(file *File) {
 				defer cf.runGroup.Done()
 
-				cf.comparisonsSemaphore.Acquire()
-				defer cf.comparisonsSemaphore.Done()
+				// Size testing
 
 				// First, we check if this size has been seen before
 				cf.sizeCollisionsMutex.Lock() // Has to be unlocked without defer. Careful!
@@ -62,7 +61,9 @@ func (cf *CollisionFinder) Run() (chan<- *File, <-chan error) {
 
 				}
 
+				cf.comparisonsSemaphore.Acquire() // Another with no defer. Careful!
 				collision, err := fileList.CollisionAdd(file)
+				cf.comparisonsSemaphore.Done()
 				if err != nil {
 					go func() {
 						errors <- fmt.Errorf("while checking for size collisions: %v", err)
