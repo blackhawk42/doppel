@@ -109,10 +109,10 @@ func (cf *CollisionFinder) Run() (chan<- *File, <-chan error) {
 // the values are the Paths of the Files that were found to collide with that hash,
 // in no particular order.
 func (cf *CollisionFinder) Result() <-chan map[string][]string {
-	cf.runGroup.Wait()
 	reportChan := make(chan map[string][]string)
 
 	go func() {
+		cf.runGroup.Wait()
 		report := make(map[string][]string)
 
 		cf.hashCollisionsMutex.Lock()
