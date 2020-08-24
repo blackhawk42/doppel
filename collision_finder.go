@@ -79,6 +79,8 @@ func (cf *CollisionFinder) Run() (chan<- *File, <-chan error) {
 					return
 				}
 
+				// Sum testing
+
 				// ... but if it was, we have to add it to the set, based on its sum
 				stringSum := fmt.Sprintf("%x", collision.Sum)
 				cf.hashCollisionsMutex.Lock() // Again, careful!
