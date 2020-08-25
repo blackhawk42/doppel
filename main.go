@@ -1,34 +1,47 @@
 package main
 
 import (
-	"crypto/sha1"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
-// // Default flags
-// const (
-// )
+// Flag setting
 
-// // Flag setting
-// var (
-// )
+// Default flags
+const (
+	DefaultHashCreatorName = "sha1"
+)
+
+// Flag variables
+var (
+	HashCreatorName = flag.String("hash", DefaultHashCreatorName, "`name` of the hash function to use")
+)
 
 func main() {
 	// Flags and sanity checks
 
 	flag.Usage = func() {
+		av := AvaiableHashCreators(avaiableHashCreators)
+
 		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [FLAGS] [ROOT_DIR]\n\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(flag.CommandLine.Output(), "Recursively search a directory for duplicate files.\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Avaiable hash functions: %s.\n\n", strings.Join(av.Names(), ", "))
 		flag.PrintDefaults()
 	}
 
 	flag.Parse()
+
+	if _, exists := avaiableHashCreators[*HashCreatorName]; !exists {
+		fmt.Fprintf(os.Stderr, "error: %s is not a valid hash function name\n", *HashCreatorName)
+		flag.Usage()
+		os.Exit(2)
+	}
 
 	// If given with no args, attempt to use in current working directory.
 	var rootDir string
@@ -57,14 +70,14 @@ func main() {
 	}
 
 	if !rootDirInfo.IsDir() {
-		fmt.Fprintf(os.Stderr, "given root is not a directory\n")
+		fmt.Fprintf(os.Stderr, "error: given root is not a directory\n")
 		flag.Usage()
 		os.Exit(2)
 	}
 
 	// Main logic
 
-	cf, newFile := NewCollisionFinder(sha1.New)
+	cf, newFile := NewCollisionFinder(avaiableHashCreators[*HashCreatorName])
 	requests, reportChan, errors := cf.Run()
 
 	// Log all found errors as they come
