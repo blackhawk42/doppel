@@ -77,6 +77,8 @@ func (f *File) doHash() {
 // retun False. If they have the same size, they will be hashed.
 //
 // For both Files, hashes are only calculated when needed, and the result is cached.
+//
+// Thread-safe.
 func (f *File) Equal(otherF *File) (bool, error) {
 	if f.size != otherF.size {
 		return false, nil
@@ -116,6 +118,8 @@ func (f *File) Equal(otherF *File) (bool, error) {
 }
 
 // Path returns the path of the File.
+//
+// Thread-safe.
 func (f *File) Path() string {
 	return f.path
 }
@@ -123,6 +127,8 @@ func (f *File) Path() string {
 // HashSum returns the hash sum of the contents of the file.
 //
 // Only calculates hash if not done already. The result, with any error, is cahced.
+//
+// Thread-safe.
 func (f *File) HashSum() ([]byte, error) {
 	f.hashOnce.Do(func() {
 		f.doHash()
@@ -132,6 +138,8 @@ func (f *File) HashSum() ([]byte, error) {
 }
 
 // Size returns the size of the file.
+//
+// Thread-safe.
 func (f *File) Size() int64 {
 	return f.size
 }

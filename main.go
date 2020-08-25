@@ -11,15 +11,13 @@ import (
 	"sync"
 )
 
-// Default flags
-const (
-	DefaultConcurrentComparisons = 10
-)
+// // Default flags
+// const (
+// )
 
-// Flag setting
-var (
-	concurrentComparisons = flag.Int("workers", DefaultConcurrentComparisons, "`number` (> 0) of possible concurrent comparisons; not exactly a \"worker\" in the usual sense, but easier to rememeber")
-)
+// // Flag setting
+// var (
+// )
 
 func main() {
 	// Flags and sanity checks
@@ -31,11 +29,6 @@ func main() {
 	}
 
 	flag.Parse()
-	if *concurrentComparisons <= 0 {
-		fmt.Fprintf(os.Stderr, "workers must be > 0\n")
-		flag.Usage()
-		os.Exit(2)
-	}
 
 	// If given with no args, attempt to use in current working directory.
 	var rootDir string
@@ -71,11 +64,8 @@ func main() {
 
 	// Main logic
 
-	cf := NewCollisionFinder(*concurrentComparisons)
-
-	newFile := NewFileCreator(sha1.New)
-
-	requests, errors := cf.Run()
+	cf, newFile := NewCollisionFinder(sha1.New)
+	requests, reportChan, errors := cf.Run()
 
 	// Log all found errors as they come
 	go func() {
@@ -95,8 +85,9 @@ func main() {
 		if !info.IsDir() {
 			wg.Add(1)
 			go func() {
+				defer wg.Done()
+
 				requests <- newFile(path, info.Size())
-				wg.Done()
 			}()
 		}
 
@@ -107,20 +98,19 @@ func main() {
 	}
 
 	wg.Wait()
-	close(requests)
-
-	result := <-cf.Result()
+	reportChan <- nil
+	report := <-reportChan
 
 	// Sort results
-	resultSums := make([]string, 0, len(result))
-	for sum := range result {
+	resultSums := make([]string, 0, len(report))
+	for sum := range report {
 		resultSums = append(resultSums, sum)
 	}
 	sort.Strings(resultSums)
 
 	for _, sum := range resultSums {
 		fmt.Printf("%s\n", sum)
-		files := result[sum]
+		files := report[sum]
 
 		sort.Strings(files)
 		for _, f := range files {
