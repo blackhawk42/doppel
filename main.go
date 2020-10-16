@@ -16,11 +16,13 @@ import (
 // Default flags
 const (
 	DefaultHashCreatorName = "sha1"
+	DefaultSerialWalkMode  = false
 )
 
 // Flag variables
 var (
 	HashCreatorName = flag.String("hash", DefaultHashCreatorName, "`name` of the hash function to use")
+	SerialWalkMode  = flag.Bool("serial-walk", DefaultSerialWalkMode, "walk root folders one by one, instead of the default of starting a porces for each root directory")
 )
 
 func main() {
@@ -29,8 +31,8 @@ func main() {
 	flag.Usage = func() {
 		av := AvaiableHashCreators(avaiableHashCreators)
 
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [FLAGS] ROOT_DIR\n\n", filepath.Base(os.Args[0]))
-		fmt.Fprintf(flag.CommandLine.Output(), "Recursively search a directory and subdirectories for duplicate files.\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [FLAGS] ROOT_DIR [ROOT_DIR...]\n\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(flag.CommandLine.Output(), "Recursively search multiple \"root\" directories for duplicate files.\n\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "Flags:\n\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\n")
@@ -46,68 +48,67 @@ func main() {
 	}
 
 	// If given with no args, take it as a valid way to ask for help. The risk of
-	// running it accidentally in a big directory is too high.
+	// running it accidentally in a big directory is too high, so all runs should
+	// be explicit.
 	if len(flag.Args()) == 0 {
 		flag.Usage()
 		os.Exit(0)
 	}
 
-	rootDir, err := filepath.Abs(flag.Args()[0])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error while getting absolute path of given directory %s: %v\n", flag.Args()[0], err)
-		flag.Usage()
-		os.Exit(2)
+	// Sanitize directories, delete repeats
+	rootDirs := make([]string, len(flag.Args()))
+
+	for i, dir := range flag.Args() {
+		sanitized, err := sanitizeDir(dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			flag.Usage()
+			os.Exit(2)
+		}
+
+		rootDirs[i] = sanitized
 	}
 
-	rootDirInfo, err := os.Stat(rootDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error while getting infromation of given directory %s: %v\n", rootDir, err)
-		flag.Usage()
-		os.Exit(2)
-	}
-
-	if !rootDirInfo.IsDir() {
-		fmt.Fprintf(os.Stderr, "error: given root is not a directory\n")
-		flag.Usage()
-		os.Exit(2)
-	}
+	rootDirs = normalizeDirs(rootDirs)
 
 	// Main logic
 
 	cf, newFile := NewCollisionFinder(avaiableHashCreators[*HashCreatorName])
-	requests, reportChan, errors := cf.Run()
+	requests, reportChan, cfErrors := cf.Run()
 
 	// Log all found errors as they come
 	go func() {
-		for err := range errors {
+		for err := range cfErrors {
 			log.Print(err)
 		}
 	}()
 
-	var wg sync.WaitGroup
-	err = filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// Log error an try to carry on with the rest of the files
-			log.Print(err)
-			return nil
-		}
+	wg := new(sync.WaitGroup)
+	for _, dir := range rootDirs {
+		// In serial mode, we just call the worker for each passed root, same parameters
+		if *SerialWalkMode {
+			err := walkWorker(dir, newFile, requests)
+			if err != nil {
+				log.Print(err)
+			}
 
-		if !info.IsDir() {
+			// Else, we start a new goroutine for each directory
+		} else {
 			wg.Add(1)
-			go func() {
+
+			go func(dir string) {
 				defer wg.Done()
 
-				requests <- newFile(path, info.Size())
-			}()
+				err := walkWorker(dir, newFile, requests)
+				if err != nil {
+					log.Print(err)
+				}
+
+			}(dir)
 		}
-
-		return nil
-	})
-	if err != nil {
-		log.Fatal(err)
 	}
-
 	wg.Wait()
+
 	reportChan <- nil
 	report := <-reportChan
 
@@ -127,5 +128,35 @@ func main() {
 			fmt.Printf("\t%s\n", f)
 		}
 	}
+}
 
+func walkWorker(rootDir string, newFile FileCreator, requests chan<- *File) error {
+	// Main logic
+
+	wg := new(sync.WaitGroup)
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Log error an try to carry on with the rest of the files
+			log.Print(err)
+			return nil
+		}
+
+		if !info.IsDir() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				requests <- newFile(path, info.Size())
+			}()
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("while walking through %s: %v", rootDir, err)
+	}
+
+	wg.Wait()
+
+	return nil
 }
