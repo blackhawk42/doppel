@@ -83,16 +83,20 @@ func main() {
 	} else {
 		results := collisionDetector.ReportCollisions()
 		if sortingMode {
-			keys := make([]string, 0, len(results))
-			for key := range results {
-				keys = append(keys, key)
+			hashes := make([]string, 0, len(results))
+			for hash := range results {
+				hashes = append(hashes, hash)
 			}
 
-			slices.Sort(keys)
+			slices.Sort(hashes)
 
-			for _, key := range keys {
-				fmt.Println(key)
-				for _, path := range results[key] {
+			for _, hash := range hashes {
+				fmt.Println(hash)
+
+				paths := results[hash]
+				slices.Sort(paths)
+
+				for _, path := range paths {
 					fmt.Printf("\t%s\n", path)
 				}
 			}
