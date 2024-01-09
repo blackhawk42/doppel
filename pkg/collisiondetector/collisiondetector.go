@@ -91,7 +91,10 @@ func (cd *CollisionDetector) comparisonProcess() {
 						cd.toAddCollision <- collisionOrder{fp1: fp1, fp2: fp2}
 					}()
 				}
-			}(fp, otherFp)
+				// The FP already registered is more likely to have been activated,
+				// so it's better for it to go first, for when it's hash is innevitably
+				// used if found to store the collision (if found to collide at all).
+			}(otherFp, fp)
 		}
 
 		cd.sizeFilePrints[fp.Size()] = append(fps, fp)
@@ -165,11 +168,15 @@ type doppelResult struct {
 
 // areDoppel compares to FilePrints and decides if they are doppelgangers.
 //
-// It does it first based on size, then based on hash. It tries to hash them
+// It does it first based on size, then based on path, and lastly hash. It tries to hash them
 // concurrently, based on the CollisionDetector semaphore to set a limit.
 func (cd *CollisionDetector) areDoppel(fp1, fp2 *fileprint.FilePrint) (bool, error) {
 	if fp1.Size() != fp2.Size() {
 		return false, nil
+	}
+
+	if fp1.Path() == fp2.Path() {
+		return true, nil
 	}
 
 	results := make(chan doppelResult)
