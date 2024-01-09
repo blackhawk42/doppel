@@ -28,7 +28,6 @@ type collisionOrder struct {
 // See Start documentation for important details.
 type CollisionDetector struct {
 	concurrency        int
-	wg                 sync.WaitGroup
 	concurrentFilesSem *semaphore.Semaphore
 	sizeFilePrints     map[int64]fileprint.FilePrintSlice
 	collisions         map[string]mapset.Set[string]
@@ -60,6 +59,7 @@ func NewCollisionDetector(concurrentFiles int) *CollisionDetector {
 // When the input channel is closed, we wait for all subprocesses to end. Onces
 // the pipes are drained, as it were, we close the channel to the next step.
 func (cd *CollisionDetector) comparisonProcess() {
+	var wg sync.WaitGroup
 	for fp := range cd.inputs {
 		fps, ok := cd.sizeFilePrints[fp.Size()]
 		if !ok {
@@ -67,15 +67,15 @@ func (cd *CollisionDetector) comparisonProcess() {
 		}
 
 		for _, otherFp := range fps {
-			cd.wg.Add(1)
+			wg.Add(1)
 			go func(fp1 *fileprint.FilePrint, fp2 *fileprint.FilePrint) {
-				defer cd.wg.Done()
+				defer wg.Done()
 
 				doppel, err := cd.areDoppel(fp1, fp2)
 				if err != nil {
-					cd.wg.Add(1)
+					wg.Add(1)
 					go func() {
-						defer cd.wg.Done()
+						defer wg.Done()
 
 						cd.errors <- err
 					}()
@@ -84,9 +84,9 @@ func (cd *CollisionDetector) comparisonProcess() {
 				}
 
 				if doppel {
-					cd.wg.Add(1)
+					wg.Add(1)
 					go func() {
-						defer cd.wg.Done()
+						defer wg.Done()
 
 						cd.toAddCollision <- collisionOrder{fp1: fp1, fp2: fp2}
 					}()
@@ -97,7 +97,7 @@ func (cd *CollisionDetector) comparisonProcess() {
 		cd.sizeFilePrints[fp.Size()] = append(fps, fp)
 	}
 
-	cd.wg.Wait()
+	wg.Wait()
 	close(cd.toAddCollision)
 }
 
@@ -111,12 +111,13 @@ func (cd *CollisionDetector) comparisonProcess() {
 // and all subprocesses have ended, so we just close the errors channel (which can
 // be seen as the third step of the pipeline).
 func (cd *CollisionDetector) addCollisionProcess() {
+	var wg sync.WaitGroup
 	for order := range cd.toAddCollision {
 		hash, err := order.fp1.Hash()
 		if err != nil {
-			cd.wg.Add(1)
+			wg.Add(1)
 			go func() {
-				defer cd.wg.Done()
+				defer wg.Done()
 				cd.errors <- err
 			}()
 
@@ -133,6 +134,7 @@ func (cd *CollisionDetector) addCollisionProcess() {
 		cols.Add(order.fp1.Path())
 		cols.Add(order.fp2.Path())
 	}
+	wg.Wait()
 	close(cd.errors)
 }
 
