@@ -22,7 +22,7 @@ type collisionOrder struct {
 }
 
 // CollisionDetector takes a stream of FilePrints and detects collisions, i. e.,
-// files with the same contetns but different names.
+// files with the same contents but different names.
 //
 // After creation with NewCollisionDetector, Start should be called to use it.
 // See Start documentation for important details.
@@ -43,6 +43,9 @@ func NewCollisionDetector(concurrentFiles int) *CollisionDetector {
 		concurrentFilesSem: semaphore.NewSemaphore(concurrentFiles),
 		sizeFilePrints:     make(map[int64]fileprint.FilePrintSlice),
 		collisions:         make(map[string]mapset.Set[string]),
+		inputs:             make(chan *fileprint.FilePrint, concurrentFiles),
+		toAddCollision:     make(chan collisionOrder, concurrentFiles),
+		errors:             make(chan error),
 	}
 }
 
@@ -56,7 +59,7 @@ func NewCollisionDetector(concurrentFiles int) *CollisionDetector {
 // Each time an error can occur, we create a subprocess to asyncronously
 // report it to the error stream and keep going.
 //
-// When the input channel is closed, we wait for all subprocesses to end. Onces
+// When the input channel is closed, we wait for all subprocesses to end. Once
 // the pipes are drained, as it were, we close the channel to the next step.
 func (cd *CollisionDetector) comparisonProcess() {
 	var wg sync.WaitGroup
@@ -92,7 +95,7 @@ func (cd *CollisionDetector) comparisonProcess() {
 					}()
 				}
 				// The FP already registered is more likely to have been activated,
-				// so it's better for it to go first, for when it's hash is innevitably
+				// so it's better for it to go first, for when its hash is innevitably
 				// used if found to store the collision (if found to collide at all).
 			}(otherFp, fp)
 		}
@@ -144,15 +147,11 @@ func (cd *CollisionDetector) addCollisionProcess() {
 // Start initializes the CollisionDetector and makes it ready for use.
 //
 // It returns two channels. The first one is for FilePrints to be sent to. The
-// seconds communicates errors at any step of the process, if any.
+// second communicates errors at any step of the process, if any.
 //
 // To shutdown the CollisionDetector, close the first channel and "drain" the
-// errors channel (receive any pending errors and wait for it to close).
+// errors channel, i. e., receive any pending errors and wait for it to close.
 func (cd *CollisionDetector) Start() (chan<- *fileprint.FilePrint, <-chan error) {
-	cd.inputs = make(chan *fileprint.FilePrint, cd.concurrency)
-	cd.toAddCollision = make(chan collisionOrder, cd.concurrency)
-	cd.errors = make(chan error)
-
 	go cd.comparisonProcess()
 	go cd.addCollisionProcess()
 

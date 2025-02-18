@@ -9,7 +9,7 @@ import (
 	"lukechampine.com/blake3"
 )
 
-// HashingPool implements a thread-safe pools of useful resources when doing hashing.
+// HashingPool implements thread-safe pools of useful resources when doing hashing.
 type HashingPool struct {
 	bufferPool sync.Pool
 	hasherPool sync.Pool
@@ -23,7 +23,7 @@ func newBuffer(size int) any {
 	return &buffer
 }
 
-// newBuffer creates a new hash.Hash.
+// newHasher creates a new hash.Hash.
 //
 // For use as the New function in an appropiate sync.Pool
 func newHasher() any {
@@ -54,14 +54,14 @@ func (hp *HashingPool) GetHasher() hash.Hash {
 	return hp.hasherPool.Get().(hash.Hash)
 }
 
-// PutBuffer puts a buffer back int the pool.
+// PutBuffer puts a buffer back into the pool.
 //
 // Should be called when done with the buffer.
 func (hp *HashingPool) PutBuffer(buffer *[]byte) {
 	hp.bufferPool.Put(buffer)
 }
 
-// PutBuffer puts a hasher back int the pool, and resets it.
+// PutBuffer resets a hasher and puts it back int the pool.
 //
 // Should be called when done with the hasher.
 func (hp *HashingPool) PutHasher(hasher hash.Hash) {
@@ -103,8 +103,9 @@ func (fp *FilePrint) Size() int64 {
 
 // Hash returns the hash of the file, computing it if needed.
 //
-// No new threads are started, but the computation itself is thread-safe,
-// so can be done inside a new one, to the discretion of the caller.
+// The actual computation will be done only once. Subsequent calls will simply
+// return the original result. No new threads are started, but the computation
+// itself is thread-safe.
 //
 // Current hash is BLAKE3 with length of 256 bits.
 func (fp *FilePrint) Hash() ([]byte, error) {
