@@ -1,34 +1,37 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sync"
 
+	"github.com/alecthomas/kong"
 	"github.com/blackhawk42/doppel/pkg/collisiondetector"
 	"github.com/blackhawk42/doppel/pkg/fileprint"
 )
 
-var (
-	maxConcurrentFiles int
-	bufferSize         int
-	uniqueMode         bool
-	sortingMode        bool
-)
+type CLI struct {
+	MaxConcurrentFiles int      `default:"${DEFAULT_CONCURRENT_FILES}" short:"c" help:"Maximum number of concurrent files to be hashed. Defaults to the number of detected CPUs."`
+	BufferSize         int      `default:"${DEFAULT_BUFFER_SIZE}" short:"b" help:"Size of the buffer to use while comparing files."`
+	UniquesMode        bool     `default:"false" short:"u" help:"Unique mode, i. e., report uniques instead of doppelgangers."`
+	Paths              []string `arg:"" help:"Paths to directories from where to run the search."`
+}
 
 func main() {
-	flag.IntVar(&maxConcurrentFiles, "concurrent-files", runtime.NumCPU(), "Maximum number of concurrent files to be hashed. Defaults to the number of detected CPUs.")
-	flag.IntVar(&bufferSize, "buffer-size", 4096, "Size of the buffer to use while comparing files.")
-	flag.BoolVar(&uniqueMode, "uniques", false, "Unique mode, i. e., report uniques instead of doppelgangers.")
-	flag.BoolVar(&sortingMode, "no-sort", true, "Stop sorting of results.")
-	flag.Parse()
+	cli := CLI{}
+	kongCtx := kong.Parse(
+		&cli,
+		kong.Description("An utility to find files with different names but same contents"),
+		kong.Vars{
+			"DEFAULT_CONCURRENT_FILES": fmt.Sprint(runtime.NumCPU()),
+			"DEFAULT_BUFFER_SIZE":      fmt.Sprint(4096),
+		},
+	)
 
-	collisionDetector := collisiondetector.NewCollisionDetector(int(maxConcurrentFiles))
+	collisionDetector := collisiondetector.NewCollisionDetector(cli.MaxConcurrentFiles)
 	filePrintsChan, errorsChan := collisionDetector.Start()
 
 	var wgError sync.WaitGroup
@@ -36,18 +39,18 @@ func main() {
 	go func() {
 		defer wgError.Done()
 		for err := range errorsChan {
-			log.Println(err)
+			kongCtx.Errorf("error: %v", err)
 		}
 	}()
 
-	hashingPool := fileprint.NewHashingPool(bufferSize)
+	hashingPool := fileprint.NewHashingPool(cli.BufferSize)
 
-	for _, dir := range flag.Args() {
+	for _, dir := range cli.Paths {
 		dir = filepath.Clean(dir)
 
 		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				log.Println(err)
+				kongCtx.Errorf("error while walking %s: %v", dir, err)
 				return nil
 			}
 
@@ -57,7 +60,7 @@ func main() {
 
 			info, err := d.Info()
 			if err != nil {
-				log.Println(err)
+				kongCtx.Errorf("error while walking %s: %v", dir, err)
 				return nil
 			}
 
@@ -70,42 +73,33 @@ func main() {
 	close(filePrintsChan)
 	wgError.Wait()
 
-	if uniqueMode {
+	if cli.UniquesMode {
 		results := collisionDetector.ReportUniques()
 
-		if sortingMode {
-			slices.Sort(results)
-		}
+		slices.Sort(results)
 
 		for _, path := range results {
 			fmt.Println(path)
 		}
 	} else {
 		results := collisionDetector.ReportCollisions()
-		if sortingMode {
-			hashes := make([]string, 0, len(results))
-			for hash := range results {
-				hashes = append(hashes, hash)
-			}
 
-			slices.Sort(hashes)
+		// Sorting
+		hashes := make([]string, 0, len(results))
+		for hash := range results {
+			hashes = append(hashes, hash)
+		}
 
-			for _, hash := range hashes {
-				fmt.Println(hash)
+		slices.Sort(hashes)
 
-				paths := results[hash]
-				slices.Sort(paths)
+		for _, hash := range hashes {
+			fmt.Println(hash)
 
-				for _, path := range paths {
-					fmt.Printf("\t%s\n", path)
-				}
-			}
-		} else {
-			for hash, paths := range results {
-				fmt.Println(hash)
-				for _, path := range paths {
-					fmt.Printf("\t%s\n", path)
-				}
+			paths := results[hash]
+			slices.Sort(paths)
+
+			for _, path := range paths {
+				fmt.Printf("\t%s\n", path)
 			}
 		}
 	}
