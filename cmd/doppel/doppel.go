@@ -17,7 +17,7 @@ type CLI struct {
 	MaxConcurrentFiles int      `default:"${DEFAULT_CONCURRENT_FILES}" short:"c" help:"Maximum number of concurrent files to be hashed. Defaults to the number of detected CPUs."`
 	BufferSize         int      `default:"${DEFAULT_BUFFER_SIZE}" short:"b" help:"Size of the buffer to use while comparing files."`
 	UniquesMode        bool     `default:"false" short:"u" help:"Unique mode, i. e., report uniques instead of doppelgangers."`
-	Paths              []string `arg:"" help:"Paths to directories from where to run the search."`
+	Paths              []string `arg:"" type:"existingdir" help:"Paths to directories from where to run the search."`
 }
 
 func main() {
