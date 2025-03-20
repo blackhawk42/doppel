@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -17,6 +18,7 @@ type CLI struct {
 	MaxConcurrentFiles int      `default:"${DEFAULT_CONCURRENT_FILES}" short:"c" help:"Maximum number of concurrent files to be hashed. Defaults to the number of detected CPUs."`
 	BufferSize         int      `default:"${DEFAULT_BUFFER_SIZE}" short:"b" help:"Size of the buffer to use while comparing files."`
 	UniquesMode        bool     `default:"false" short:"u" help:"Unique mode, i. e., report uniques instead of doppelgangers."`
+	OutputFile         string   `optional:"" short:"o" type:"path" help:"Output file. Stdout by default."`
 	Paths              []string `arg:"" type:"existingdir" help:"Paths to directories from where to run the search."`
 }
 
@@ -30,6 +32,15 @@ func main() {
 			"DEFAULT_BUFFER_SIZE":      fmt.Sprint(4096),
 		},
 	)
+
+	var ouptut = os.Stdout
+	if cli.OutputFile != "" {
+		f, err := os.Create(cli.OutputFile)
+		kongCtx.FatalIfErrorf(err, fmt.Sprintf("while opening output file: %v", err))
+
+		ouptut = f
+		defer f.Close()
+	}
 
 	collisionDetector := collisiondetector.NewCollisionDetector(cli.MaxConcurrentFiles)
 	filePrintsChan, errorsChan := collisionDetector.Start()
@@ -79,7 +90,7 @@ func main() {
 		slices.Sort(results)
 
 		for _, path := range results {
-			fmt.Println(path)
+			fmt.Fprintln(ouptut, path)
 		}
 	} else {
 		results := collisionDetector.ReportCollisions()
@@ -93,13 +104,13 @@ func main() {
 		slices.Sort(hashes)
 
 		for _, hash := range hashes {
-			fmt.Println(hash)
+			fmt.Fprintln(ouptut, hash)
 
 			paths := results[hash]
 			slices.Sort(paths)
 
 			for _, path := range paths {
-				fmt.Printf("\t%s\n", path)
+				fmt.Fprintf(ouptut, "\t%s\n", path)
 			}
 		}
 	}
